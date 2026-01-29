@@ -76,6 +76,8 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
   val storageExpireDirTimeout = conf.workerStorageExpireDirTimeout
   val storagePolicy = new StoragePolicy(conf, this, workerSource)
 
+  logInfo(s"hasS3Storage $hasS3Storage remoteStorageDirs $remoteStorageDirs storagePolicy $storagePolicy")
+
   val diskReserveSize = conf.workerDiskReserveSize
   val diskReserveRatio = conf.workerDiskReserveRatio
 
@@ -89,7 +91,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
     if (workingDirInfos.size <= 0 && remoteStorageDirs.isEmpty) {
       throw new IOException("Empty working directory configuration!")
     }
-
+    logInfo(s"workdingDirInfos $workingDirInfos")
     DeviceInfo.getDeviceAndDiskInfos(workingDirInfos, conf)
   }
   val mountPoints = new util.HashSet[String](diskInfos.keySet())
@@ -100,6 +102,8 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
     }
     if (diskInfoSet.nonEmpty) Some(diskInfoSet) else None
   }
+
+  logInfo(s"remoteDiskInfos $remoteDiskInfos")
 
   def disksSnapshot(): List[DiskInfo] = {
     diskInfos.synchronized {
@@ -1086,12 +1090,13 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
     val shuffleKey = Utils.makeShuffleKey(appId, shuffleId)
     while (retryCount < conf.workerCreateWriterMaxAttempts) {
       val diskInfo = diskInfos.get(suggestedMountPoint)
+      logInfo(s"createDiskFile $location $appId $fileName $partitionType suggestedMountPoint=$suggestedMountPoint $diskInfo $diskInfos.")
       val dirs =
         if (diskInfo != null && diskInfo.status.equals(DiskStatus.HEALTHY)) {
           diskInfo.dirs
         } else {
           if (suggestedMountPoint.isEmpty) {
-            logDebug(s"Location suggestedMountPoint is not set, return all healthy working dirs.")
+            logInfo(s"Location suggestedMountPoint is not set, return all healthy working dirs.")
           } else {
             logInfo(s"Disk(${diskInfo.mountPoint}) unavailable for $suggestedMountPoint, return all healthy" +
               s" working dirs.")
@@ -1101,7 +1106,8 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
       if (dirs.isEmpty && hdfsFlusher.isEmpty && s3Flusher.isEmpty && ossFlusher.isEmpty) {
         throw new IOException(s"No available disks! suggested mountPoint $suggestedMountPoint")
       }
-
+      val s3available = location.getStorageInfo.S3Available();
+      logInfo(s"dirs $dirs s3available $s3available")
       if (dirs.isEmpty && location.getStorageInfo.HDFSAvailable()) {
         val shuffleDir =
           new Path(new Path(hdfsDir, conf.workerWorkingDir), s"$appId/$shuffleId")

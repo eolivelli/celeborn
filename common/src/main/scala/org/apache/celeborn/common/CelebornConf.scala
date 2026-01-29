@@ -1311,7 +1311,7 @@ class CelebornConf(loadDefaults: Boolean) extends Cloneable with Logging with Se
         }
       }
     }.toSet
-
+    logInfo(s"validDirs $validDirs")
     if (validDirs.nonEmpty) Some(validDirs) else None
   }
 
