@@ -122,7 +122,7 @@ class StoragePolicy(conf: CelebornConf, storageManager: StorageManager, source: 
             }
           case StorageInfo.Type.HDD | StorageInfo.Type.SSD | StorageInfo.Type.HDFS | StorageInfo.Type.OSS | StorageInfo.Type.S3 =>
             if (storageManager.localOrDfsStorageAvailable) {
-              logDebug(s"create non-memory file for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName}")
+              logInfo(s"create non-memory file for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName}")
               val (flusher, diskFileInfo, workingDir) = storageManager.createDiskFile(
                 location,
                 partitionDataWriterContext.getAppId,
@@ -160,6 +160,7 @@ class StoragePolicy(conf: CelebornConf, storageManager: StorageManager, source: 
                   storageManager)
               }
             } else {
+              logError(s"CANNOT create non-memory file for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName} because localOrDfsStorageAvailable is false")
               null
             }
         }

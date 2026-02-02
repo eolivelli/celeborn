@@ -24,17 +24,14 @@ import java.util
 import java.util.concurrent.{ConcurrentHashMap, ScheduledExecutorService, ThreadPoolExecutor, TimeUnit}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import java.util.function.{BiConsumer, IntUnaryOperator}
-
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.duration._
-
 import com.google.common.annotations.VisibleForTesting
 import io.netty.buffer.ByteBufAllocator
 import org.apache.commons.io.FileUtils
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.fs.permission.FsPermission
-
 import org.apache.celeborn.common.CelebornConf
 import org.apache.celeborn.common.exception.CelebornException
 import org.apache.celeborn.common.identity.UserIdentifier
@@ -42,6 +39,7 @@ import org.apache.celeborn.common.internal.Logging
 import org.apache.celeborn.common.meta.{DeviceInfo, DiskFileInfo, DiskInfo, DiskStatus, FileInfo, FileMeta, MapFileMeta, MemoryFileInfo, ReduceFileMeta, TimeWindow}
 import org.apache.celeborn.common.metrics.source.{AbstractSource, ThreadPoolSource}
 import org.apache.celeborn.common.network.util.{NettyUtils, TransportConf}
+import org.apache.celeborn.common.protocol.StorageInfo.Type
 import org.apache.celeborn.common.protocol.{PartitionLocation, PartitionSplitMode, PartitionType, StorageInfo}
 import org.apache.celeborn.common.quota.ResourceConsumption
 import org.apache.celeborn.common.util.{CelebornExitKind, CelebornHadoopUtils, CollectionUtils, DiskUtils, JavaUtils, PbSerDeUtils, ThreadUtils, Utils}
@@ -350,7 +348,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
           val shuffleKey = parseDbShuffleKey(key)
           try {
             val files = PbSerDeUtils.fromPbFileInfoMap(entry.getValue, cache, mountPoints)
-            logDebug(s"Reload DB: $shuffleKey -> $files")
+            logInfo(s"Reload DB: $shuffleKey -> $files")
             diskFileInfos.put(shuffleKey, files)
             committedFileInfos.put(shuffleKey, files)
             db.delete(entry.getKey)
@@ -377,7 +375,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
           dbShuffleKey(shuffleKey),
           PbSerDeUtils.toPbFileInfoMap(files),
           true)
-        logDebug(s"Update FileInfos into DB: $shuffleKey -> $files")
+        logInfo(s"Update FileInfos into DB: $shuffleKey -> $files")
       } catch {
         case exception: Exception =>
           logError(s"Update FileInfos into DB: $shuffleKey failed.", exception)
@@ -454,6 +452,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
     if (healthyWorkingDirs().isEmpty && remoteStorageDirs.isEmpty) {
       throw new IOException("No available working dirs!")
     }
+    logInfo(s"createPartitionDataWriter at $location")
     val partitionDataWriterContext = new PartitionDataWriterContext(
       splitThreshold,
       splitMode,
@@ -931,7 +930,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
                 diskInfo.configuredUsableSpace - totalUsage,
                 fileSystemReportedUsableSpace - actualReserveSize)
             val usableSpace = Math.max(workingDirUsableSpace, 0)
-            logDebug(
+            logInfo(
               s"Update diskInfo:${diskInfo.mountPoint} workingDirUsableSpace:$workingDirUsableSpace fileMeta:$fileSystemReportedUsableSpace " +
                 s"configuredUsableSpace:${diskInfo.configuredUsableSpace} totalUsage:$totalUsage totalSpace:$fileSystemReportedTotalSpace " +
                 s"actualReserveSize:$actualReserveSize usableSpace:$usableSpace")
@@ -1012,13 +1011,13 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
   def createFile(
       partitionDataWriterContext: PartitionDataWriterContext,
       useMemoryShuffle: Boolean): (MemoryFileInfo, Flusher, DiskFileInfo, File) = {
-    logDebug(
+    logInfo(
       s"create file for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName}")
     val location = partitionDataWriterContext.getPartitionLocation
     if (useMemoryShuffle
       && location.getStorageInfo.memoryAvailable()
       && MemoryManager.instance().memoryFileStorageAvailable()) {
-      logDebug(s"Create memory file for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName}")
+      logInfo(s"Create memory file for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName}")
       (
         createMemoryFileInfo(
           partitionDataWriterContext.getAppId,
@@ -1032,7 +1031,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
         null)
     } else if (location.getStorageInfo.localDiskAvailable() || location.getStorageInfo.HDFSAvailable()
       || location.getStorageInfo.S3Available() || location.getStorageInfo.OSSAvailable()) {
-      logDebug(s"create non-memory file for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName}")
+      logInfo(s"create non-memory file for ${partitionDataWriterContext.getShuffleKey} ${partitionDataWriterContext.getPartitionLocation.getFileName}")
       val createDiskFileResult = createDiskFile(
         location,
         partitionDataWriterContext.getAppId,
@@ -1066,7 +1065,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
         userIdentifier,
         partitionSplitEnabled,
         fileMeta)
-    logDebug(s"create memory file for ${shuffleKey} ${fileName} and put it int memoryFileInfos")
+    logInfo(s"create memory file for ${shuffleKey} ${fileName} and put it int memoryFileInfos")
     memoryFileInfos.computeIfAbsent(shuffleKey, memoryFileInfoMapFunc).put(
       fileName,
       memoryFileInfo)
@@ -1085,12 +1084,13 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
       partitionType: PartitionType,
       partitionSplitEnabled: Boolean): (Flusher, DiskFileInfo, File) = {
     val suggestedMountPoint = location.getStorageInfo.getMountPoint
+    val storageTyoe = location.getStorageInfo.getType
     var retryCount = 0
     var exception: IOException = null
     val shuffleKey = Utils.makeShuffleKey(appId, shuffleId)
     while (retryCount < conf.workerCreateWriterMaxAttempts) {
       val diskInfo = diskInfos.get(suggestedMountPoint)
-      logInfo(s"createDiskFile $location $appId $fileName $partitionType suggestedMountPoint=$suggestedMountPoint $diskInfo $diskInfos.")
+      logInfo(s"createDiskFile $location $appId $fileName $partitionType suggestedMountPoint=$suggestedMountPoint $diskInfo $diskInfos. retryCount $retryCount")
       val dirs =
         if (diskInfo != null && diskInfo.status.equals(DiskStatus.HEALTHY)) {
           diskInfo.dirs
@@ -1108,7 +1108,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
       }
       val s3available = location.getStorageInfo.S3Available();
       logInfo(s"dirs $dirs s3available $s3available")
-      if (dirs.isEmpty && location.getStorageInfo.HDFSAvailable()) {
+      if (storageTyoe == Type.HDFS && location.getStorageInfo.HDFSAvailable()) {
         val shuffleDir =
           new Path(new Path(hdfsDir, conf.workerWorkingDir), s"$appId/$shuffleId")
         FileSystem.mkdirs(
@@ -1126,14 +1126,17 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
           fileName,
           hdfsFileInfo)
         return (hdfsFlusher.get, hdfsFileInfo, null)
-      } else if (dirs.isEmpty && location.getStorageInfo.S3Available()) {
-        val shuffleDir =
+      } else if (storageTyoe == Type.S3 && location.getStorageInfo.S3Available()) {
+        val shuffleDir = {
           new Path(new Path(s3Dir, conf.workerWorkingDir), s"$appId/$shuffleId")
+        }
+        logInfo(s"trying to create S3 file at $shuffleDir");
         FileSystem.mkdirs(
           StorageManager.hadoopFs.get(StorageInfo.Type.S3),
           shuffleDir,
           hdfsPermission)
         val s3FilePath = new Path(shuffleDir, fileName).toString
+        logInfo(s"s3FilePath  $s3FilePath");
         val s3FileInfo = new DiskFileInfo(
           userIdentifier,
           partitionSplitEnabled,
@@ -1144,7 +1147,7 @@ final private[worker] class StorageManager(conf: CelebornConf, workerSource: Abs
           fileName,
           s3FileInfo)
         return (s3Flusher.get, s3FileInfo, null)
-      } else if (dirs.isEmpty && location.getStorageInfo.OSSAvailable()) {
+      } else if (storageTyoe == Type.OSS && location.getStorageInfo.OSSAvailable()) {
         val shuffleDir =
           new Path(new Path(ossDir, conf.workerWorkingDir), s"$appId/$shuffleId")
         FileSystem.mkdirs(

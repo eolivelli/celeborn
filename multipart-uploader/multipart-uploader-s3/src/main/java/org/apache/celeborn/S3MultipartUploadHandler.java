@@ -20,13 +20,16 @@ package org.apache.celeborn;
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
+import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.event.ProgressListener;
 import com.amazonaws.retry.PredefinedBackoffStrategies;
 import com.amazonaws.retry.PredefinedRetryPolicies;
 import com.amazonaws.retry.RetryPolicy;
 import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.*;
+import com.amazonaws.util.AwsHostNameUtils;
 import org.apache.celeborn.server.common.service.mpu.MultipartUploadHandler;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -46,15 +49,15 @@ public class S3MultipartUploadHandler implements MultipartUploadHandler {
 
   private String uploadId;
 
-  private AmazonS3 s3Client;
+  private final AmazonS3 s3Client;
 
-  private String key;
+  private final String key;
 
-  private String bucketName;
+  private final String bucketName;
 
-  private Integer s3MultiplePartUploadMaxRetries;
-  private Integer baseDelay;
-  private Integer maxBackoff;
+  private final Integer s3MultiplePartUploadMaxRetries;
+  private final Integer baseDelay;
+  private final Integer maxBackoff;
 
   public S3MultipartUploadHandler(
       FileSystem hadoopFs,
@@ -82,12 +85,23 @@ public class S3MultipartUploadHandler implements MultipartUploadHandler {
         new ClientConfiguration()
             .withRetryPolicy(retryPolicy)
             .withMaxErrorRetry(s3MultiplePartUploadMaxRetries);
-    this.s3Client =
-        AmazonS3ClientBuilder.standard()
+    var builder = AmazonS3ClientBuilder.standard()
             .withCredentials(DefaultAWSCredentialsProviderChain.getInstance()) // TODO: Use config from Hadoop or DefaultAWSCredentialsProviderChain
-            .withRegion(conf.get(Constants.AWS_REGION))
-            .withClientConfiguration(clientConfig)
-            .build();
+            .withClientConfiguration(clientConfig);
+    // for MinIO
+    String endpoint = conf.get("fs.s3a.endpoint");
+    if (endpoint != null && !endpoint.isEmpty())
+    {
+      builder = builder.withEndpointConfiguration(
+              new AwsClientBuilder.EndpointConfiguration(
+                      endpoint,
+                      conf.get(Constants.AWS_REGION)
+              ))
+              .withPathStyleAccessEnabled(conf.getBoolean("fs.s3a.path.style.access", false));
+    } else {
+      builder = builder.withRegion(conf.get(Constants.AWS_REGION));
+    }
+    this.s3Client = builder.build();
     this.key = key;
   }
 

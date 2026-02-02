@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hadoop.fs.StorageType;
 import scala.Tuple2;
 import scala.Tuple3;
 import scala.reflect.ClassTag$;
@@ -231,6 +232,13 @@ public class ShuffleClientImpl extends ShuffleClient {
 
     reviveManager = new ReviveManager(this, conf);
 
+    if (conf.hasS3Storage()) {
+      var hadoopFs = getHadoopFs(conf);
+      var s3client = hadoopFs.get(StorageInfo.Type.S3);
+      logger.info("S3 client: {}", s3client);
+      if (s3client == null)
+        throw new IllegalStateException("S3 type is requred but the S3 client was not created");
+    }
     logger.info("Created ShuffleClientImpl, appUniqueId: {}", appUniqueId);
   }
 

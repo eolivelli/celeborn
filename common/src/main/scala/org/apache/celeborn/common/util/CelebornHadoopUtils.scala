@@ -63,7 +63,7 @@ object CelebornHadoopUtils extends Logging {
         "org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider," +
           "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider," +
           "com.amazonaws.auth.EnvironmentVariableCredentialsProvider," +
-          "org.apache.hadoop.fs.s3a.auth.IAMInstanceCredentialsProvider" +
+          "org.apache.hadoop.fs.s3a.auth.IAMInstanceCredentialsProvider," +
           "com.amazonaws.auth.WebIdentityTokenCredentialsProvider")
 
       hadoopConf.set("fs.s3a.endpoint.region", conf.s3EndpointRegion)
@@ -100,6 +100,7 @@ object CelebornHadoopUtils extends Logging {
       dirs.foreach {
         case (storageType, dir) => {
           val path = new Path(dir)
+          logInfo(s"Creating HadoopFS for type $storageType at path $path");
           hadoopFs.put(storageType, path.getFileSystem(hadoopConf))
         }
       })

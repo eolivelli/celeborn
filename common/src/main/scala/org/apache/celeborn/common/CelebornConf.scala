@@ -670,8 +670,11 @@ class CelebornConf(loadDefaults: Boolean) extends Cloneable with Logging with Se
   }
   def hasHDFSStorage: Boolean =
     get(ACTIVE_STORAGE_TYPES).contains(StorageInfo.Type.HDFS.name()) && get(HDFS_DIR).isDefined
-  def hasS3Storage: Boolean =
-    get(ACTIVE_STORAGE_TYPES).contains(StorageInfo.Type.S3.name()) && get(S3_DIR).isDefined
+  def hasS3Storage: Boolean = {
+    val s3active = get(ACTIVE_STORAGE_TYPES).contains(StorageInfo.Type.S3.name());
+    val dirDefined = get(S3_DIR).isDefined
+    s3active && dirDefined
+  }
   def hasOssStorage: Boolean =
     get(ACTIVE_STORAGE_TYPES).contains(StorageInfo.Type.OSS.name()) && get(OSS_DIR).isDefined
   def masterSlotAssignLoadAwareDiskGroupNum: Int = get(MASTER_SLOT_ASSIGN_LOADAWARE_DISKGROUP_NUM)
